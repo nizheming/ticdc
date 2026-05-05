@@ -514,7 +514,7 @@ func (e *eventStore) RegisterDispatcher(
 			for _, subStat := range subStats {
 				// Check if this subStat's span contains the dispatcherSpan
 				if bytes.Compare(subStat.tableSpan.StartKey, dispatcherSpan.StartKey) <= 0 &&
-					bytes.Compare(dispatcherSpan.EndKey, subStat.tableSpan.EndKey) <= 0 {
+					bytes.Compare(subStat.tableSpan.EndKey, dispatcherSpan.EndKey) >= 0 {
 
 					// For onlyReuse register request, we only consider initialized subStats
 					if onlyReuse && !subStat.initialized.Load() {
@@ -756,21 +756,13 @@ func (e *eventStore) UpdateDispatcherCheckpointTs(
 			if !subStat.checkpointTs.CompareAndSwap(oldCheckpointTs, newCheckpointTs) {
 				continue
 			}
-			// If there is no dml event after old checkpoint ts, then there is no data to be deleted.
-			// So we can skip adding gc item.
-			lastReceiveDMLTime := subStat.lastReceiveDMLTime.Load()
-			if lastReceiveDMLTime > 0 {
-				oldCheckpointPhysicalTime := oracle.GetTimeFromTS(oldCheckpointTs)
-				if lastReceiveDMLTime >= oldCheckpointPhysicalTime.UnixMilli() {
-					e.gcManager.addGCItem(
-						subStat.dbIndex,
-						uint64(subStat.subID),
-						subStat.tableSpan.TableID,
-						oldCheckpointTs,
-						newCheckpointTs,
-					)
-				}
-			}
+			e.gcManager.addGCItem(
+				subStat.dbIndex,
+				uint64(subStat.subID),
+				subStat.tableSpan.TableID,
+				oldCheckpointTs,
+				newCheckpointTs,
+			)
 			e.subscriptionChangeCh.In() <- SubscriptionChange{
 				ChangeType:   SubscriptionChangeTypeUpdate,
 				SubID:        uint64(subStat.subID),
